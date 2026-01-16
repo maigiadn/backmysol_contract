@@ -1,0 +1,15 @@
+.anchor
+.DS_Store
+target
+**/*.rs.bk
+node_modules
+test-ledger
+.yarn
+
+# Security
+.env
+*.key
+wallet.json
+*-wallet.json
+old_admin.json
+id.json
