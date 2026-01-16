@@ -17,3 +17,4 @@ id.json
 scripts/initialize_mainnet.ts
 scripts/check_admin.ts
 scripts/check_config.ts
+scripts/initialize.ts
