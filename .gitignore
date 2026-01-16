@@ -13,3 +13,7 @@ wallet.json
 *-wallet.json
 old_admin.json
 id.json
+# Scripts (Thêm phần này vào cuối file)
+scripts/initialize_mainnet.ts
+scripts/check_admin.ts
+scripts/check_config.ts
