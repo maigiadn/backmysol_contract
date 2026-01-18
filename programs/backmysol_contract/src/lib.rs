@@ -1,7 +1,21 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, CloseAccount, Token};
 use anchor_lang::solana_program::system_instruction;
-
+use solana_security_txt::security_txt;
+#[cfg(not(feature = "no-entrypoint"))]
+security_txt! {
+    // Tên dự án
+    name: "BackMySol",
+    project_url: "https://backmysol.io",
+    source_code: "https://github.com/maigiadn/backmysol_contract",
+    
+    contacts: "email:admin@backmysol.io,link:https://t.me/backmysol_support",
+    
+    policy: "https://backmysol.io/security-policy",
+    // Thời điểm công bố
+    preferred_languages: "en,vi",
+    auditors: "None"
+}
 declare_id!("CjjskajkSeYgfQxx88wcaLvPSe3RmGgbpzkHpnQevyB6");
 
 #[program]
@@ -88,9 +102,26 @@ pub mod backmysol_contract {
         referral_state.total_rewards_generated = 0;
         referral_state.bump = ctx.bumps.referral_state;
 
+        // Thêm kiểm tra thủ công PDA cho referrer_state
+        let (expected_referrer_pda, _bump) = Pubkey::find_program_address(
+            &[b"referral", referrer.as_ref()],
+            ctx.program_id
+        );
+        require!(ctx.accounts.referrer_state.key() == expected_referrer_pda, ErrorCode::InvalidReferrerWallet);
+
         // Truy vết Cấp 2
-        if let Some(referrer_state) = &ctx.accounts.referrer_state {
-            referral_state.tier2_referrer = Some(referrer_state.referrer);
+        // Chỉ đọc data nếu account đã init (có lamports và owner đúng)
+        if ctx.accounts.referrer_state.lamports() > 0 && ctx.accounts.referrer_state.owner == ctx.program_id {
+             // Deserialize thủ công
+             let acc_data = ctx.accounts.referrer_state.try_borrow_data()?;
+             let mut slice: &[u8] = &acc_data;
+             // Skip anchor discriminator (8 bytes)
+             if slice.len() >= 8 {
+                 let referrer_account = Result::<ReferralState>::Ok(AccountDeserialize::try_deserialize(&mut slice)?)?;
+                 referral_state.tier2_referrer = Some(referrer_account.referrer);
+             } else {
+                 referral_state.tier2_referrer = None;
+             }
         } else {
             referral_state.tier2_referrer = None;
         }
@@ -187,7 +218,7 @@ fn invoke_transfer<'info>(
 pub struct Initialize<'info> {
     #[account(
         init, payer = admin, space = 8 + GlobalConfig::INIT_SPACE, 
-        // QUAN TRỌNG: Đổi seed thành config_v1 để tạo account mới
+       
         seeds = [b"config_v1"], bump
     )]
     pub config: Account<'info, GlobalConfig>,
@@ -198,7 +229,6 @@ pub struct Initialize<'info> {
 
 #[derive(Accounts)]
 pub struct UpdateConfig<'info> {
-    // QUAN TRỌNG: Đổi seed thành config_v1
     #[account(mut, seeds = [b"config_v1"], bump)]
     pub config: Account<'info, GlobalConfig>,
     #[account(constraint = admin.key() == config.admin @ ErrorCode::Unauthorized)]
@@ -212,7 +242,7 @@ pub struct RegisterReferralCode<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
-    // QUAN TRỌNG: Đổi seed thành config_v1
+
     #[account(seeds = [b"config_v1"], bump)]
     pub config: Account<'info, GlobalConfig>,
 
@@ -242,14 +272,13 @@ pub struct InitializeReferral<'info> {
         seeds = [b"referral", user.key().as_ref()], bump
     )]
     pub referral_state: Account<'info, ReferralState>,
-    #[account(seeds = [b"referral", referrer.key().as_ref()], bump)]
-    pub referrer_state: Option<Account<'info, ReferralState>>,
+    /// CHECK: Manually validated in instruction logic to allow for Genesis (uninitialized referrer)
+    pub referrer_state: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
 pub struct CleanAndDistribute<'info> {
-    // QUAN TRỌNG: Đổi seed thành config_v1
     #[account(seeds = [b"config_v1"], bump)]
     pub config: Account<'info, GlobalConfig>,
     #[account(mut)]

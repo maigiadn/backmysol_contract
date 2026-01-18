@@ -6,6 +6,7 @@ import {
     mintTo
 } from "@solana/spl-token";
 import { Keypair, SystemProgram, Transaction, PublicKey } from "@solana/web3.js";
+import fs from "fs";
 
 // Hàm chờ (sleep) để tránh bị RPC chặn vì spam quá nhanh
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -17,10 +18,10 @@ describe("mint_to_target", () => {
     const payer = provider.wallet as anchor.Wallet;
 
     // ĐỊA CHỈ VÍ ĐÍCH MUỐN TẠO TOKEN VÀO
-    const TARGET_WALLET = new PublicKey("CmDe1vtVGaycKJxZ7DEbeAH5me8LUFtNBSJTgcL2L6gw");
+    //const TARGET_WALLET = new PublicKey("CmDe1vtVGaycKJxZ7DEbeAH5me8LUFtNBSJTgcL2L6gw");
 
     // SỐ LƯỢNG TÀI KHOẢN MUỐN TẠO (Đã sửa thành 20)
-    const ACCOUNT_COUNT = 18;
+    const ACCOUNT_COUNT = 5;
 
     it("Create Empty Token Accounts for Target Wallet", async () => {
         console.log(`🚀 Bắt đầu tạo ${ACCOUNT_COUNT} token rác cho ví: ${TARGET_WALLET.toString()}...`);

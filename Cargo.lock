@@ -309,6 +309,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "blake3",
+ "solana-security-txt",
 ]
 
 [[package]]
