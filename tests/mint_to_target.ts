@@ -18,10 +18,15 @@ describe("mint_to_target", () => {
     const payer = provider.wallet as anchor.Wallet;
 
     // ĐỊA CHỈ VÍ ĐÍCH MUỐN TẠO TOKEN VÀO
-    //const TARGET_WALLET = new PublicKey("CmDe1vtVGaycKJxZ7DEbeAH5me8LUFtNBSJTgcL2L6gw");
+    const TARGET_WALLET = new PublicKey("6DWVmoeHPUg3sSA9JLJDxpmbkoYw4JBgZNiGamdTXJ5U");
+    // LOAD USER B
+    //const userB = Keypair.fromSecretKey(
+    //    Uint8Array.from(JSON.parse(fs.readFileSync("./tests/keypairs/user_b.json", "utf8")))
+    //);
+    //const TARGET_WALLET = userB.publicKey;
 
     // SỐ LƯỢNG TÀI KHOẢN MUỐN TẠO (Đã sửa thành 20)
-    const ACCOUNT_COUNT = 5;
+    const ACCOUNT_COUNT = 10;
 
     it("Create Empty Token Accounts for Target Wallet", async () => {
         console.log(`🚀 Bắt đầu tạo ${ACCOUNT_COUNT} token rác cho ví: ${TARGET_WALLET.toString()}...`);

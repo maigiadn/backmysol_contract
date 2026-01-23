@@ -68,113 +68,70 @@ describe.only("backmysol_contract", () => {
         }
     });
 
-    it("2. Tạo Genesis Referrer (Admin tự kích hoạt)", async () => {
-        // Bước này cực quan trọng: Admin phải tự tạo State cho mình trước
-        // Để sau này User A có thể trỏ vào Admin mà không bị lỗi "AccountNotInitialized"
-        try {
-            await program.account.referralState.fetch(adminReferralStatePda);
-            console.log("Admin State đã tồn tại (Genesis OK).");
-        } catch (e) {
-            console.log("Đang tạo Genesis Referrer (Admin)...");
-            try {
-                // Admin dùng Dummy Referrer (SystemProgram) để khởi tạo Genesis
-                // Vì referrer_state của SystemProgram không tồn tại -> Contract sẽ coi như không có uplink => Genesis
-                const dummyReferrer = anchor.web3.SystemProgram.programId;
-                const [dummyReferrerStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
-                    [Buffer.from(SEED_REFERRAL), dummyReferrer.toBuffer()],
-                    program.programId
-                );
+    // Step 2 Removed: Genesis Referrer concept is simplified in new logic.
+    // Admin is default referrer if none specified.
 
-                await program.methods
-                    .initializeReferral(dummyReferrer)
-                    .accounts({
-                        user: admin.publicKey,
-                        referrerState: dummyReferrerStatePda, // Explicitly pass the derived address
-                    })
-                    .rpc();
-                console.log("✅ Tạo Genesis Admin thành công!");
-            } catch (err) {
-                console.log("ℹ️ Admin Init Msg:", err.message);
-            }
-        }
-    });
-
-    it("3. User A đăng ký (Referrer = Admin)", async () => {
+    it("2. User A đăng ký Partner (Referrer = Admin mặc định)", async () => {
         const referralCode = "SOLFAN";
         [referralCodeMappingPda] = anchor.web3.PublicKey.findProgramAddressSync(
             [Buffer.from(SEED_CODE), Buffer.from(referralCode)],
             program.programId
         );
 
-        // --- KHỞI TẠO STATE CHO USER A ---
         try {
-            await program.account.referralState.fetch(referrerStatePda);
-            console.log("State User A đã có.");
-        } catch (e) {
-            console.log("Đang khởi tạo state cho User A...");
-
+            await program.account.referralCodeMapping.fetch(referralCodeMappingPda);
+            console.log("ℹ️ User A đã đăng ký code trước đó via fetch check.");
+        } catch {
             try {
-                // SỬA LỖI CHÍNH: Truyền Admin Key vào làm Referrer (thay vì null)
                 await program.methods
-                    .initializeReferral(admin.publicKey)
+                    .registerPartner(referralCode, null) // No referrer -> Admin
                     .accounts({
                         user: userA.publicKey,
-                        referrerState: adminReferralStatePda,
+                        config: configPda,
+                        referralCodeMapping: referralCodeMappingPda,
+                        referralState: referrerStatePda,
+                        uplineReferrerState: null,
+                        systemProgram: anchor.web3.SystemProgram.programId
                     })
                     .signers([userA])
                     .rpc();
-                console.log("✅ User A Init State thành công!");
-            } catch (rpcError) {
-                if (rpcError.message.includes("already in use")) {
-                    console.log("ℹ️ State User A đã tồn tại.");
-                } else if (rpcError.message.includes("AccountNotInitialized")) {
-                    console.error("❌ Lỗi: Admin chưa được khởi tạo (Bước 2 thất bại). Contract yêu cầu Referrer phải có State.");
-                } else {
-                    console.error("❌ Lỗi Init User A:", rpcError);
-                }
+                console.log(`✅ User A đã đăng ký code: ${referralCode}`);
+            } catch (e) {
+                console.log("ℹ️ Register msg:", e.message);
             }
-        }
-
-        // --- Đăng ký Code ---
-        try {
-            await program.methods
-                .registerReferralCode(referralCode)
-                .accounts({
-                    user: userA.publicKey,
-                    treasury: admin.publicKey, // Dùng Admin làm Treasury cho khớp constraint
-                })
-                .signers([userA])
-                .rpc();
-            console.log(`✅ User A đã đăng ký code: ${referralCode}`);
-        } catch (e) {
-            console.log("ℹ️ Code info:", e.message);
         }
     });
 
-    it("4. User B liên kết User A và dọn dẹp", async () => {
-        // Kiểm tra State A
-        try {
-            await program.account.referralState.fetch(referrerStatePda);
-        } catch (e) {
-            throw new Error("CRITICAL: User A chưa có State. Test dừng lại.");
-        }
+    it("3. User B liên kết User A và dọn dẹp", async () => {
+        // User B register partner (hoặc chỉ link)
+        // Trong contract mới, registerPartner cũng xử lý việc link referrer.
+        // Ta dùng 1 code dummy cho B để init state của B
+        const userBCode = "USERB";
+        const [userBCodeMapping] = anchor.web3.PublicKey.findProgramAddressSync(
+            [Buffer.from(SEED_CODE), Buffer.from(userBCode)],
+            program.programId
+        );
 
-        // B link với A
         try {
-            await program.methods
-                .initializeReferral(userA.publicKey)
-                .accounts({
-                    user: userB.publicKey,
-                    referrerState: referrerStatePda,
-                })
-                .signers([userB])
-                .rpc();
-            console.log("✅ User B đã liên kết với A.");
-        } catch (e) {
-            if (e.message.includes("already in use") || e.message.includes("0x0")) {
-                console.log("ℹ️ User B đã có state.");
-            } else {
-                console.log("⚠️ Lỗi Link User B:", e.message);
+            await program.account.referralCodeMapping.fetch(userBCodeMapping);
+            console.log("ℹ️ User B đã liên kết trước đó.");
+        } catch {
+            try {
+                await program.methods
+                    .registerPartner(userBCode, userA.publicKey)
+                    .accounts({
+                        user: userB.publicKey,
+                        config: configPda,
+                        referralCodeMapping: userBCodeMapping,
+                        referralState: userBReferralState,
+                        uplineReferrerState: referrerStatePda,
+                        systemProgram: anchor.web3.SystemProgram.programId
+                    })
+                    .signers([userB])
+                    .rpc();
+                console.log("✅ User B đã liên kết với A.");
+            } catch (e) {
+                console.log("ℹ️ User B Link msg:", e.message);
             }
         }
 
@@ -186,10 +143,13 @@ describe.only("backmysol_contract", () => {
         try {
             const builder = program.methods.cleanAndDistribute()
                 .accounts({
+                    config: configPda,
                     user: userB.publicKey,
+                    referralState: userBReferralState, // Add this
                     referrerWallet: userA.publicKey,
                     tier2ReferrerWallet: null,
                     treasury: admin.publicKey,
+                    tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
                 });
 
             // 1. Tìm các tài khoản Token của User B để đóng

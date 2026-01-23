@@ -2,27 +2,25 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, CloseAccount, Token};
 use anchor_lang::solana_program::system_instruction;
 use solana_security_txt::security_txt;
+
 #[cfg(not(feature = "no-entrypoint"))]
 security_txt! {
-    // Tên dự án
     name: "BackMySol",
     project_url: "https://backmysol.io",
     source_code: "https://github.com/maigiadn/backmysol_contract",
-    
     contacts: "email:admin@backmysol.io,link:https://t.me/backmysol_support",
-    
     policy: "https://backmysol.io/security-policy",
-    // Thời điểm công bố
     preferred_languages: "en,vi",
     auditors: "None"
 }
+
 declare_id!("CjjskajkSeYgfQxx88wcaLvPSe3RmGgbpzkHpnQevyB6");
 
 #[program]
 pub mod backmysol_contract {
     use super::*;
 
-    // 1. Khởi tạo cấu hình Admin
+    // 1. Init Config
     pub fn initialize(
         ctx: Context<Initialize>,
         admin: Option<Pubkey> 
@@ -34,15 +32,14 @@ pub mod backmysol_contract {
             config.admin = *ctx.accounts.admin.key; 
         } 
         
-        // Cấu hình Fee mặc định
-        config.platform_fee_bps = 2000; // 20%
-        config.tier1_share_bps = 5000;  // 50%
-        config.tier2_share_bps = 2500;  // 25%
+        config.platform_fee_bps = 2000; 
+        config.tier1_share_bps = 5000; 
+        config.tier2_share_bps = 2500; 
         
         Ok(())
     }
 
-    // 2. Update cấu hình
+    // 2. Update Config
     pub fn update_config(
         ctx: Context<UpdateConfig>,
         new_platform_fee_bps: u16,
@@ -61,95 +58,107 @@ pub mod backmysol_contract {
         Ok(())
     }
 
-    // 3. (FEATURE) Mua Mã Giới Thiệu Tuỳ Chỉnh (Phí 0.001 SOL)
-    pub fn register_referral_code(ctx: Context<RegisterReferralCode>, code: String) -> Result<()> {
-        // Validate
+    // 3. REGISTER PARTNER (FREE - NO FEE)
+    pub fn register_partner(
+        ctx: Context<RegisterPartner>, 
+        code: String, 
+        referrer: Option<Pubkey>
+    ) -> Result<()> {
+        // --- A. XỬ LÝ MÃ CODE ---
         require!(code.len() > 0 && code.len() <= 10, ErrorCode::InvalidCodeLength);
 
-        // Thu phí 0.001 SOL (1,000,000 lamports)
-        let fee_amount: u64 = 1_000_000; 
-        
-        let transfer_ix = system_instruction::transfer(
-            ctx.accounts.user.key,
-            ctx.accounts.treasury.key,
-            fee_amount
-        );
-        anchor_lang::solana_program::program::invoke(
-            &transfer_ix,
-            &[
-                ctx.accounts.user.to_account_info(),
-                ctx.accounts.treasury.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-            ],
-        )?;
-
-        // Lưu PDA
+        // Lưu mapping code -> user wallet
         let mapping = &mut ctx.accounts.referral_code_mapping;
         mapping.owner = ctx.accounts.user.key();
         mapping.bump = ctx.bumps.referral_code_mapping;
 
-        // msg!("Registered custom code '{}'. Fee collected.", code);
-        Ok(())
-    }
-
-    // 4. Initialize Referral (Ghi nhận người giới thiệu)
-    pub fn initialize_referral(ctx: Context<InitializeReferral>, referrer: Pubkey) -> Result<()> {
-        let user_key = ctx.accounts.user.key();
-        require!(user_key != referrer, ErrorCode::SelfReferral);
-
+        // --- B. XỬ LÝ REFERRAL STATE & UPLINE ---
         let referral_state = &mut ctx.accounts.referral_state;
-        referral_state.referrer = referrer;
-        referral_state.total_rewards_generated = 0;
-        referral_state.bump = ctx.bumps.referral_state;
+        
+        // Chỉ setup nếu chưa từng setup
+        if referral_state.referrer == Pubkey::default() && referral_state.total_rewards_generated == 0 {
+            referral_state.total_rewards_generated = 0;
+            referral_state.bump = ctx.bumps.referral_state;
 
-        // Thêm kiểm tra thủ công PDA cho referrer_state
-        let (expected_referrer_pda, _bump) = Pubkey::find_program_address(
-            &[b"referral", referrer.as_ref()],
-            ctx.program_id
-        );
-        require!(ctx.accounts.referrer_state.key() == expected_referrer_pda, ErrorCode::InvalidReferrerWallet);
+            if let Some(upline_key) = referrer {
+                require!(ctx.accounts.user.key() != upline_key, ErrorCode::SelfReferral);
+                
+                // Validate ví Upline
+                if let Some(upline_acc_info) = &ctx.accounts.upline_referrer_state {
+                    // Check PDA address
+                    let (expected_pda, _bump) = Pubkey::find_program_address(
+                        &[b"referral", upline_key.as_ref()],
+                        ctx.program_id
+                    );
+                    require!(upline_acc_info.key() == expected_pda, ErrorCode::InvalidReferrerWallet);
+                    
+                    // Set Referrer (F1)
+                    referral_state.referrer = upline_key;
 
-        // Truy vết Cấp 2
-        // Chỉ đọc data nếu account đã init (có lamports và owner đúng)
-        if ctx.accounts.referrer_state.lamports() > 0 && ctx.accounts.referrer_state.owner == ctx.program_id {
-             // Deserialize thủ công
-             let acc_data = ctx.accounts.referrer_state.try_borrow_data()?;
-             let mut slice: &[u8] = &acc_data;
-             // Skip anchor discriminator (8 bytes)
-             if slice.len() >= 8 {
-                 let referrer_account = Result::<ReferralState>::Ok(AccountDeserialize::try_deserialize(&mut slice)?)?;
-                 referral_state.tier2_referrer = Some(referrer_account.referrer);
-             } else {
-                 referral_state.tier2_referrer = None;
-             }
-        } else {
-            referral_state.tier2_referrer = None;
+                    // Tìm Tier 2 (F2)
+                    if upline_acc_info.lamports() > 0 && upline_acc_info.owner == ctx.program_id {
+                        let acc_data = upline_acc_info.try_borrow_data()?;
+                        let mut slice: &[u8] = &acc_data;
+                        if slice.len() >= 8 {
+                            if let Ok(upline_state) = AccountDeserialize::try_deserialize(&mut slice) {
+                                let state: ReferralState = upline_state;
+                                referral_state.tier2_referrer = Some(state.referrer);
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Default referrer là Admin
+                referral_state.referrer = ctx.accounts.config.admin; 
+                referral_state.tier2_referrer = None;
+            }
         }
 
         Ok(())
     }
 
-    // 5. Clean & Distribute (Chia tiền)
+    // 4. CLEAN & DISTRIBUTE
+    // 4. CLEAN & DISTRIBUTE (UPDATED FOR ZERO-COST REFERRAL)
     pub fn clean_and_distribute<'info>(ctx: Context<'_, '_, '_, 'info, CleanAndDistribute<'info>>) -> Result<()> {
         let config = &ctx.accounts.config;
         let user = &ctx.accounts.user;
-        let referral_state = &ctx.accounts.referral_state;
         
-        if let Some(ref1_wallet) = &ctx.accounts.referrer_wallet {
-            require!(ref1_wallet.key() == referral_state.referrer, ErrorCode::InvalidReferrerWallet);
-        }
+        let mut ref1_pubkey: Option<Pubkey> = None;
+        let mut ref2_pubkey: Option<Pubkey> = None;
+
+        // --- LOGIC MỚI: Ưu tiên On-chain, nhưng Fallback về Ví gửi lên ---
         
-        if let Some(ref2_wallet) = &ctx.accounts.tier2_referrer_wallet {
-             require!(
-                referral_state.tier2_referrer.is_some() && 
-                ref2_wallet.key() == referral_state.tier2_referrer.unwrap(), 
-                ErrorCode::InvalidReferrerWallet
-            );
+        if let Some(ref_state) = &ctx.accounts.referral_state {
+            // TRƯỜNG HỢP 1: Đã có Referral State (User cũ)
+            // Lấy referrer từ dữ liệu on-chain để đảm bảo tính toàn vẹn
+            ref1_pubkey = Some(ref_state.referrer);
+            ref2_pubkey = ref_state.tier2_referrer;
+
+            // Validate: Nếu Frontend có gửi ví referrer, nó phải khớp với on-chain
+            if let Some(ref1_wallet) = &ctx.accounts.referrer_wallet {
+                 require!(ref1_wallet.key() == ref_state.referrer, ErrorCode::InvalidReferrerWallet);
+            }
+            if let Some(ref2_wallet) = &ctx.accounts.tier2_referrer_wallet {
+                 require!(
+                    ref_state.tier2_referrer.is_some() && 
+                    ref2_wallet.key() == ref_state.tier2_referrer.unwrap(), 
+                    ErrorCode::InvalidReferrerWallet
+                );
+            }
+        } else {
+            // TRƯỜNG HỢP 2: Chưa có Referral State (User mới / Zero Cost)
+            // Lấy referrer từ tham số context do Frontend gửi lên (từ link giới thiệu)
+            if let Some(ref1_wallet) = &ctx.accounts.referrer_wallet {
+                // Chặn tự giới thiệu bản thân
+                require!(ref1_wallet.key() != user.key(), ErrorCode::SelfReferral);
+                ref1_pubkey = Some(ref1_wallet.key());
+            }
+            
+            // User mới thì chưa có Tier 2, bỏ qua.
         }
 
         let mut total_rent_reclaimed: u64 = 0;
 
-        // Đóng Account
         for account_info in ctx.remaining_accounts.iter() {
             if account_info.owner != &ctx.accounts.token_program.key() { continue; }
             total_rent_reclaimed += account_info.lamports();
@@ -164,7 +173,6 @@ pub mod backmysol_contract {
             token::close_account(cpi_ctx)?;
         }
 
-        // Chia tiền
         if total_rent_reclaimed > 0 {
             let gross_fee = (total_rent_reclaimed * config.platform_fee_bps as u64) / 10000;
             
@@ -173,18 +181,25 @@ pub mod backmysol_contract {
                 let tier2_amt = (gross_fee * config.tier2_share_bps as u64) / 10000;
                 let mut admin_amt = gross_fee; 
 
-                if tier1_amt > 0 {
-                    if let Some(ref1_wallet) = &ctx.accounts.referrer_wallet {
-                        invoke_transfer(user, ref1_wallet, tier1_amt, &ctx.accounts.system_program)?;
-                        admin_amt = admin_amt.saturating_sub(tier1_amt);
+                // Chia tiền cho Ref 1 (Nếu tồn tại từ step trên)
+                if let Some(_r1) = ref1_pubkey {
+                    if tier1_amt > 0 {
+                        // Logic cũ: lấy ví từ ctx.accounts.referrer_wallet
+                        // Vì ở logic trên ta đã gán ref1_pubkey = ref1_wallet.key() nên chắc chắn ví này tồn tại
+                        if let Some(ref1_wallet) = &ctx.accounts.referrer_wallet {
+                            invoke_transfer(user, ref1_wallet, tier1_amt, &ctx.accounts.system_program)?;
+                            admin_amt = admin_amt.saturating_sub(tier1_amt);
+                        }
                     }
                 }
 
-                if tier2_amt > 0 {
-                    if referral_state.tier2_referrer.is_some() && ctx.accounts.tier2_referrer_wallet.is_some() {
-                        let ref2_wallet = ctx.accounts.tier2_referrer_wallet.as_ref().unwrap();
-                        invoke_transfer(user, ref2_wallet, tier2_amt, &ctx.accounts.system_program)?;
-                        admin_amt = admin_amt.saturating_sub(tier2_amt);
+                // Chia tiền cho Ref 2
+                if let Some(_r2) = ref2_pubkey {
+                    if tier2_amt > 0 {
+                        if let Some(ref2_wallet) = &ctx.accounts.tier2_referrer_wallet {
+                            invoke_transfer(user, ref2_wallet, tier2_amt, &ctx.accounts.system_program)?;
+                            admin_amt = admin_amt.saturating_sub(tier2_amt);
+                        }
                     }
                 }
 
@@ -197,7 +212,7 @@ pub mod backmysol_contract {
     }
 }
 
-// --- HELPER ---
+// --- HELPERS ---
 fn invoke_transfer<'info>(
     from: &Signer<'info>,
     to: &AccountInfo<'info>,
@@ -212,13 +227,12 @@ fn invoke_transfer<'info>(
     Ok(())
 }
 
-// --- ACCOUNTS ---
+// --- CONTEXTS ---
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(
         init, payer = admin, space = 8 + GlobalConfig::INIT_SPACE, 
-       
         seeds = [b"config_v1"], bump
     )]
     pub config: Account<'info, GlobalConfig>,
@@ -235,20 +249,16 @@ pub struct UpdateConfig<'info> {
     pub admin: Signer<'info>,
 }
 
-// Updated Context cho Custom Code
 #[derive(Accounts)]
-#[instruction(code: String)]
-pub struct RegisterReferralCode<'info> {
+#[instruction(code: String, referrer: Option<Pubkey>)]
+pub struct RegisterPartner<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
-
 
     #[account(seeds = [b"config_v1"], bump)]
     pub config: Account<'info, GlobalConfig>,
 
-    /// CHECK: Validated by checking address == config.admin
-    #[account(mut, address = config.admin)]
-    pub treasury: AccountInfo<'info>,
+    // Đã xóa Treasury ở đây
 
     #[account(
         init,
@@ -259,21 +269,18 @@ pub struct RegisterReferralCode<'info> {
     )]
     pub referral_code_mapping: Account<'info, ReferralCodeMapping>,
 
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-#[instruction(referrer: Pubkey)]
-pub struct InitializeReferral<'info> {
-    #[account(mut)]
-    pub user: Signer<'info>,
     #[account(
-        init, payer = user, space = 8 + ReferralState::INIT_SPACE,
-        seeds = [b"referral", user.key().as_ref()], bump
+        init, 
+        payer = user, 
+        space = 8 + ReferralState::INIT_SPACE,
+        seeds = [b"referral", user.key().as_ref()], 
+        bump
     )]
     pub referral_state: Account<'info, ReferralState>,
-    /// CHECK: Manually validated in instruction logic to allow for Genesis (uninitialized referrer)
-    pub referrer_state: UncheckedAccount<'info>,
+
+    /// CHECK: Validated manually
+    pub upline_referrer_state: Option<AccountInfo<'info>>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -283,18 +290,23 @@ pub struct CleanAndDistribute<'info> {
     pub config: Account<'info, GlobalConfig>,
     #[account(mut)]
     pub user: Signer<'info>,
-    #[account(seeds = [b"referral", user.key().as_ref()], bump = referral_state.bump)]
-    pub referral_state: Account<'info, ReferralState>,
+
+    // ĐÃ FIX: Dùng cú pháp bump chuẩn của Anchor để tránh lỗi type mismatch
+    #[account(
+        seeds = [b"referral", user.key().as_ref()], 
+        bump
+    )]
+    pub referral_state: Option<Account<'info, ReferralState>>,
     
-    /// CHECK: Validated logic in instruction
+    /// CHECK: Validated logic inside function
     #[account(mut)]
     pub referrer_wallet: Option<AccountInfo<'info>>,
     
-    /// CHECK: Validated logic in instruction
+    /// CHECK: Validated logic inside function
     #[account(mut)]
     pub tier2_referrer_wallet: Option<AccountInfo<'info>>,
     
-    /// CHECK: Validated by address check against config
+    /// CHECK: Validated by address constraint
     #[account(mut, address = config.admin)]
     pub treasury: AccountInfo<'info>,
     
@@ -303,7 +315,6 @@ pub struct CleanAndDistribute<'info> {
 }
 
 // --- DATA ---
-// ... (Phần Data Structures giữ nguyên không thay đổi)
 #[account]
 #[derive(InitSpace)]
 pub struct GlobalConfig {
