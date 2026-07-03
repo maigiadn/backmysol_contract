@@ -155,7 +155,12 @@ describe("backer_guilds", () => {
         assert.equal(await balance(championProfilePda) - preVault, cost, "Vốn phải vào két Champion");
         assert.equal(await balance(champion.publicKey) - preChampion, championAmt, "Champion nhận 50% phí");
         assert.equal(await balance(seasonVaultPda(1)) - prePool, poolAmt, "Quỹ mùa nhận 20% phí");
-        assert.equal(await balance(admin.publicKey) - preTreasury, treasuryAmt, "Treasury nhận phần còn lại");
+        // admin vừa là treasury vừa là fee payer mặc định của provider nên số
+        // dư đo được đã bị trừ thêm phí mạng của chính giao dịch này — so
+        // sánh có dung sai nhỏ, cùng quy ước với test 6 (backer trả phí mạng).
+        const treasuryDiff = await balance(admin.publicKey) - preTreasury;
+        assert.isAtLeast(treasuryDiff, treasuryAmt - 15_000, "Treasury nhận phần còn lại (trừ phí mạng)");
+        assert.isAtMost(treasuryDiff, treasuryAmt);
 
         const profile = await program.account.championProfile.fetch(championProfilePda);
         assert.equal(profile.sharesOutstanding.toNumber(), 10);

@@ -249,6 +249,24 @@ pub mod backmysol_contract {
         gc.season_id = 1;
         gc.paused = false;
         gc.bump = ctx.bumps.game_config;
+
+        // Cấp vốn rent-exempt ban đầu cho season_vault mùa 1. PDA này chỉ giữ
+        // lamports (không có data) — nếu để trống, lần credit phí đầu tiên
+        // (thường rất nhỏ vì giá suất khởi điểm gần như miễn phí) sẽ khiến cả
+        // transaction fail do vi phạm rent-exempt.
+        let rent_exempt_min = Rent::get()?.minimum_balance(0);
+        anchor_lang::solana_program::program::invoke(
+            &system_instruction::transfer(
+                ctx.accounts.admin.key,
+                ctx.accounts.season_vault.key,
+                rent_exempt_min,
+            ),
+            &[
+                ctx.accounts.admin.to_account_info(),
+                ctx.accounts.season_vault.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+        )?;
         Ok(())
     }
 
@@ -659,6 +677,10 @@ pub struct InitializeGame<'info> {
         seeds = [b"game_config_v1"], bump
     )]
     pub game_config: Account<'info, GameConfig>,
+
+    /// CHECK: PDA quỹ mùa giải mùa 1, chỉ giữ lamports — cấp vốn rent-exempt ngay khi init game
+    #[account(mut, seeds = [b"season_vault", &1u32.to_le_bytes()], bump)]
+    pub season_vault: AccountInfo<'info>,
 
     #[account(mut, constraint = admin.key() == config.admin @ ErrorCode::Unauthorized)]
     pub admin: Signer<'info>,
