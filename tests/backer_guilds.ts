@@ -218,7 +218,7 @@ describe("backer_guilds", () => {
 
     it("6. Admin mở khóa (lock=0) rồi bán 4 suất — tiền về đúng công thức", async () => {
         await program.methods.updateGameConfig(500, 700, 5000, 2000, 1000, 500, new BN(CURVE_DIVISOR), new BN(0), 1, false)
-            .accounts({ admin: admin.publicKey })
+            .accounts({ seasonVault: seasonVaultPda(1), admin: admin.publicKey })
             .rpc();
 
         const proceeds = curveCost(6, 4);       // (385-91) * 62500 = 18_375_000
@@ -300,6 +300,48 @@ describe("backer_guilds", () => {
         assert.equal(await balance(refWallet.publicKey) - preRef, ref1Amt, "F1 phải nhận 10% phí");
         const profile = await program.account.championProfile.fetch(championProfilePda);
         assert.equal(profile.sharesOutstanding.toNumber(), 11);
+    });
+
+    it("8. Đổi mùa: update_game_config tự cấp vốn rent-exempt cho vault mùa mới, mua đầu mùa không fail", async () => {
+        const rentMin = await provider.connection.getMinimumBalanceForRentExemption(0);
+        const vault2 = seasonVaultPda(2);
+        assert.equal(await balance(vault2), 0, "Vault mùa 2 phải đang rỗng trước khi đổi mùa");
+
+        // Đổi sang mùa 2 (giữ nguyên các tham số khác, lock vẫn 0 từ test 6)
+        await program.methods.updateGameConfig(500, 700, 5000, 2000, 1000, 500, new BN(CURVE_DIVISOR), new BN(0), 2, false)
+            .accounts({ seasonVault: vault2, admin: admin.publicKey })
+            .rpc();
+
+        assert.equal(await balance(vault2), rentMin, "Đổi mùa phải cấp vốn rent-exempt cho vault mùa mới");
+
+        // Giao dịch mua ĐẦU TIÊN của mùa mới — phí pool rất nhỏ (90k lamports),
+        // trước bản vá sẽ fail vì credit dưới mức rent-exempt của account rỗng
+        const cost = curveCost(11, 1);           // 144 * 62500 = 9_000_000
+        const fee = bps(cost, 500);               // 450_000
+        const poolAmt = bps(fee, 2000);           // 90_000
+
+        await program.methods.buyBacking(new BN(1))
+            .accounts({
+                backer: backer.publicKey,
+                championProfile: championProfilePda,
+                championWallet: champion.publicKey,
+                seasonVault: vault2,
+                // @ts-ignore — optional accounts
+                referralState: null,
+                referrerWallet: null,
+                tier2ReferrerWallet: null,
+                treasury: admin.publicKey,
+                position: positionPda(backer.publicKey),
+            })
+            .signers([backer])
+            .rpc();
+
+        assert.equal(await balance(vault2), rentMin + poolAmt, "Quỹ mùa 2 nhận 20% phí đầu mùa");
+
+        const profile = await program.account.championProfile.fetch(championProfilePda);
+        assert.equal(profile.sharesOutstanding.toNumber(), 12);
+        assert.equal(profile.seasonId, 2, "Profile phải chuyển sang mùa 2");
+        assert.equal(profile.seasonVolume.toNumber(), cost, "Volume mùa phải reset theo mùa mới");
     });
 });
 

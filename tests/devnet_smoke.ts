@@ -134,13 +134,11 @@ describe("devnet_smoke — Backer Guilds end-to-end", () => {
     });
 
     it("3. hạ lock=0, bán 1 suất, khôi phục lock", async () => {
-        // LƯU Ý: khi update_game_config có thêm account season_vault (bản vá
-        // season rollover), bổ sung account đó vào 2 call dưới đây.
         await program.methods.updateGameConfig(
             gc.buyFeeBps, gc.sellFeeBps,
             gc.championShareBps, gc.poolShareBps, gc.ref1ShareBps, gc.ref2ShareBps,
             gc.curveDivisor, new BN(0), gc.seasonId, gc.paused
-        ).accounts({ admin: admin.publicKey }).rpc();
+        ).accounts({ seasonVault, admin: admin.publicKey }).rpc();
         console.log("Đã hạ lock_seconds = 0 (tạm)");
 
         try {
@@ -166,7 +164,7 @@ describe("devnet_smoke — Backer Guilds end-to-end", () => {
                 gc.buyFeeBps, gc.sellFeeBps,
                 gc.championShareBps, gc.poolShareBps, gc.ref1ShareBps, gc.ref2ShareBps,
                 gc.curveDivisor, prevLockSeconds, gc.seasonId, gc.paused
-            ).accounts({ admin: admin.publicKey }).rpc();
+            ).accounts({ seasonVault, admin: admin.publicKey }).rpc();
             console.log("Đã khôi phục lock_seconds =", prevLockSeconds.toString());
         }
         await logBalances("Sau khi bán");

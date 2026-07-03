@@ -44,14 +44,17 @@ pháp lý chứng khoán); pet/NFT chưa làm ở giai đoạn này.
 - `tests/devnet_smoke.ts` — smoke test end-to-end register/buy/sell trên devnet,
   chạy thủ công (xem mục 4).
 
+- **Đã vá season rollover**: `update_game_config` giờ nhận thêm account `season_vault`
+  (PDA theo `season_id` truyền vào) + `system_program`, tự cấp vốn rent-exempt cho
+  vault mùa mới ngay trong giao dịch đổi mùa. Test 8 trong `backer_guilds.ts` cover
+  kịch bản này (10 test tổng cộng).
+
 Việc kế tiếp theo thứ tự:
-1. **Vá season rollover** (đang làm): đổi `season_id` qua `update_game_config` phải
-   tự cấp vốn rent-exempt cho vault mùa mới, không thì giao dịch mua đầu tiên của
-   mỗi mùa mới sẽ fail y hệt bug mùa 1 đã vá.
-2. Chạy `tests/devnet_smoke.ts` trên devnet (sau khi deploy bản có vá rollover).
-3. Frontend + indexer (đọc event `BackingBought`/`BackingSold`).
-4. Giai đoạn 2 (SeasonPool data, settle merkle, guild).
-5. **Audit bắt buộc trước khi lên mainnet** (contract sẽ giữ SOL người chơi).
+1. Chạy lại `anchor test` localnet (10/10) rồi `anchor deploy` devnet bản có vá
+   rollover, sau đó chạy `tests/devnet_smoke.ts` trên devnet.
+2. Frontend + indexer (đọc event `BackingBought`/`BackingSold`).
+3. Giai đoạn 2 (SeasonPool data, settle merkle, guild).
+4. **Audit bắt buộc trước khi lên mainnet** (contract sẽ giữ SOL người chơi).
 
 ## 3. Kiến trúc contract
 
@@ -119,11 +122,10 @@ Toolchain đã xác nhận trên máy chủ dự án (Mac): anchor-cli 0.32.1, s
    người chơi lên mainnet trước khi audit.
 5. Sửa bản vá fallback referrer thì phải sửa cả frontend gọi `clean_and_distribute`
    (thêm account `fallback_referrer_state`).
-6. **Đổi mùa (season_id) phải cấp vốn rent-exempt cho season_vault mùa mới** —
-   PDA vault theo mùa là account rỗng, credit đầu tiên nhỏ hơn ~890,880 lamports
-   sẽ bị runtime reject. Mùa 1 đã được cấp vốn trong `initialize_game`; các mùa
-   sau dùng bản `update_game_config` có vá rollover (nếu chưa có vá thì KHÔNG đổi
-   season_id trên môi trường thật).
+6. **Đổi mùa (season_id) phải qua `update_game_config`** — instruction này tự cấp
+   vốn rent-exempt cho vault mùa mới (vault rỗng mà nhận credit nhỏ hơn ~890,880
+   lamports sẽ bị runtime reject). LƯU Ý: binary devnet đang chạy là bản CŨ chưa có
+   vá rollover — phải `anchor deploy` lại trước khi đổi season_id trên devnet.
 
 ## 6. Quy ước làm việc
 

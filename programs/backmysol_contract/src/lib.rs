@@ -305,6 +305,22 @@ pub mod backmysol_contract {
         gc.lock_seconds = lock_seconds;
         gc.season_id = season_id;
         gc.paused = paused;
+
+        // Vá season rollover: vault của mùa được trỏ tới phải rent-exempt.
+        // Khi đổi sang mùa mới, PDA vault mùa đó còn rỗng — nếu không cấp vốn
+        // ngay tại đây, lần credit phí đầu tiên của mùa (rất nhỏ) sẽ khiến cả
+        // giao dịch mua fail, y hệt bug mùa 1 đã vá trong initialize_game.
+        // Mùa không đổi thì vault hiện tại đã đủ tiền, phần bù = 0.
+        let rent_exempt_min = Rent::get()?.minimum_balance(0);
+        let vault_lamports = ctx.accounts.season_vault.lamports();
+        if vault_lamports < rent_exempt_min {
+            invoke_transfer(
+                &ctx.accounts.admin,
+                &ctx.accounts.season_vault,
+                rent_exempt_min - vault_lamports,
+                &ctx.accounts.system_program,
+            )?;
+        }
         Ok(())
     }
 
@@ -688,6 +704,17 @@ pub struct InitializeGame<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(
+    buy_fee_bps: u16,
+    sell_fee_bps: u16,
+    champion_share_bps: u16,
+    pool_share_bps: u16,
+    ref1_share_bps: u16,
+    ref2_share_bps: u16,
+    curve_divisor: u64,
+    lock_seconds: i64,
+    season_id: u32
+)]
 pub struct UpdateGameConfig<'info> {
     #[account(seeds = [b"config_v1"], bump)]
     pub config: Account<'info, GlobalConfig>,
@@ -695,8 +722,14 @@ pub struct UpdateGameConfig<'info> {
     #[account(mut, seeds = [b"game_config_v1"], bump = game_config.bump)]
     pub game_config: Account<'info, GameConfig>,
 
-    #[account(constraint = admin.key() == config.admin @ ErrorCode::Unauthorized)]
+    /// CHECK: PDA quỹ mùa của season_id truyền vào — được cấp vốn rent-exempt
+    /// ngay trong instruction nếu còn thiếu (quan trọng khi đổi mùa)
+    #[account(mut, seeds = [b"season_vault", &season_id.to_le_bytes()], bump)]
+    pub season_vault: AccountInfo<'info>,
+
+    #[account(mut, constraint = admin.key() == config.admin @ ErrorCode::Unauthorized)]
     pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
