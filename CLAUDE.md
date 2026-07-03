@@ -34,13 +34,24 @@ pháp lý chứng khoán); pet/NFT chưa làm ở giai đoạn này.
   hoa hồng. Giờ chỉ trả khi ví giới thiệu có `ReferralState` on-chain đăng ký trước
   (account optional mới `fallback_referrer_state`). **Frontend hiện tại phải cập nhật
   theo** khi deploy bản này.
-- `tests/backer_guilds.ts` — 9 test case (curve, chia phí, self-back, khóa bán,
-  referral, 2 case cho bản vá). Compile đã pass (`cargo check`), **test chưa chạy** —
-  việc kế tiếp là chạy trên localnet.
+- `tests/backer_guilds.ts` — **9/9 test pass trên localnet** (commit `0787f13`:
+  fix cấp vốn rent-exempt cho season_vault mùa 1 trong `initialize_game` + fix
+  assertion treasury ở test 3).
+- **Đã deploy devnet** (program id `Cjjs...vyB6`, ví `~/.config/solana/id.json` là
+  upgrade authority): binary mới đủ 9 instruction, IDL on-chain đã re-init,
+  `initialize_game` đã chạy — GameConfig live, season_vault mùa 1 đã có rent-exempt
+  (890,880 lamports).
+- `tests/devnet_smoke.ts` — smoke test end-to-end register/buy/sell trên devnet,
+  chạy thủ công (xem mục 4).
 
-Việc kế tiếp theo thứ tự: chạy test localnet → deploy devnet → frontend + indexer
-(đọc event `BackingBought`/`BackingSold`) → Giai đoạn 2 (SeasonPool, settle merkle,
-guild) → **audit bắt buộc trước khi lên mainnet** (contract sẽ giữ SOL người chơi).
+Việc kế tiếp theo thứ tự:
+1. **Vá season rollover** (đang làm): đổi `season_id` qua `update_game_config` phải
+   tự cấp vốn rent-exempt cho vault mùa mới, không thì giao dịch mua đầu tiên của
+   mỗi mùa mới sẽ fail y hệt bug mùa 1 đã vá.
+2. Chạy `tests/devnet_smoke.ts` trên devnet (sau khi deploy bản có vá rollover).
+3. Frontend + indexer (đọc event `BackingBought`/`BackingSold`).
+4. Giai đoạn 2 (SeasonPool data, settle merkle, guild).
+5. **Audit bắt buộc trước khi lên mainnet** (contract sẽ giữ SOL người chơi).
 
 ## 3. Kiến trúc contract
 
@@ -76,6 +87,11 @@ cargo check -p backmysol_contract
 # Chạy test game trên localnet — PHẢI sửa tạm Anchor.toml trước (xem mục 5):
 anchor build
 anchor test
+
+# Smoke test devnet (thủ công, cần GameConfig đã init + ví admin có SOL devnet):
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
+ANCHOR_WALLET=~/.config/solana/id.json \
+yarn ts-mocha -p ./tsconfig.json -t 1000000 tests/devnet_smoke.ts
 ```
 
 Toolchain đã xác nhận trên máy chủ dự án (Mac): anchor-cli 0.32.1, solana-cli 3.0.13
@@ -103,6 +119,11 @@ Toolchain đã xác nhận trên máy chủ dự án (Mac): anchor-cli 0.32.1, s
    người chơi lên mainnet trước khi audit.
 5. Sửa bản vá fallback referrer thì phải sửa cả frontend gọi `clean_and_distribute`
    (thêm account `fallback_referrer_state`).
+6. **Đổi mùa (season_id) phải cấp vốn rent-exempt cho season_vault mùa mới** —
+   PDA vault theo mùa là account rỗng, credit đầu tiên nhỏ hơn ~890,880 lamports
+   sẽ bị runtime reject. Mùa 1 đã được cấp vốn trong `initialize_game`; các mùa
+   sau dùng bản `update_game_config` có vá rollover (nếu chưa có vá thì KHÔNG đổi
+   season_id trên môi trường thật).
 
 ## 6. Quy ước làm việc
 
