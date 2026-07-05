@@ -157,8 +157,24 @@ Sau beta: **audit contract** (bắt buộc) → deploy mainnet → trỏ `app.ba
 - [ ] Bán trước 24h bị chặn trên UI với countdown đúng; bán sau khóa nhận đúng tiền.
 - [ ] Đổi mùa trên devnet (`update_game_config`) → UI + leaderboard chuyển mùa đúng, mua đầu mùa không lỗi.
 
-## 8. Việc cần chủ dự án làm trước khi bắt đầu code
+## 8. Điều kiện tiên quyết — ĐÃ HOÀN TẤT (2026-07-05)
 
-1. Tạo repo GitHub `backmysol_app` (private) và cấp quyền cho session Claude làm việc.
-2. Tạo 2 API key Helius mới như mục 4 (và thu hồi key cũ trong Anchor.toml).
-3. Chốt subdomain: `app.backmysol.io` (đề xuất) — thêm DNS record khi deploy tuần 2.
+1. ✅ Repo GitHub: **https://github.com/maigiadn/app_backmysol** (lưu ý tên repo là
+   `app_backmysol`, không phải `backmysol_app` như bản nháp).
+2. ✅ 2 API key Helius mới đã tạo (chủ dự án giữ, KHÔNG commit vào repo — chỉ đưa vào
+   `.env.local` gitignored và `wrangler secret put`). Key nào bật domain whitelist trên
+   dashboard Helius là key frontend; key còn lại cho indexer/webhook. Nhớ thu hồi key
+   cũ từng lộ trong `Anchor.toml`.
+3. ✅ Subdomain: `app.backmysol.io` — thêm DNS record khi deploy tuần 2.
+4. ✅ Database D1 đã tạo sẵn và ÁP XONG SCHEMA mục 3 (idempotent, `IF NOT EXISTS`):
+   - name: `backmysol-indexer`
+   - database_id: `c13098f1-9271-4ce7-8d8f-45c863f69ef6` (region APAC)
+   - Dùng ngay trong `wrangler.toml`:
+     ```toml
+     [[d1_databases]]
+     binding = "DB"
+     database_name = "backmysol-indexer"
+     database_id = "c13098f1-9271-4ce7-8d8f-45c863f69ef6"
+     ```
+   - `migrations/0001_init.sql` trong repo mới phải viết `CREATE TABLE IF NOT EXISTS`
+     để chạy đè lên schema đã áp mà không lỗi.
