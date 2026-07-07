@@ -53,7 +53,10 @@ Việc kế tiếp theo thứ tự:
 1. Chạy lại `anchor test` localnet (10/10) rồi `anchor deploy` devnet bản có vá
    rollover, sau đó chạy `tests/devnet_smoke.ts` trên devnet.
 2. Frontend + indexer — thiết kế chi tiết đã chốt trong `docs/FRONTEND_INDEXER_PLAN.md`
-   (app Next.js mới + indexer Cloudflare Worker/D1, repo mới `backmysol_app`).
+   (app Next.js mới + indexer Cloudflare Worker/D1, repo `maigiadn/app_backmysol`).
+   Tuần 1 (monorepo, indexer, packages/shared) đã build/test pass và push lên repo đó.
+   Spec Tuần 2 (wallet-adapter, trang `/register`, trang `/[code]` mua/bán trên devnet):
+   `docs/WEEK2_FRONTEND_SPEC.md`.
 3. Giai đoạn 2 (SeasonPool data, settle merkle, guild).
 4. **Audit bắt buộc trước khi lên mainnet** (contract sẽ giữ SOL người chơi).
 
